@@ -26,6 +26,58 @@ This order is applied:
     antibiotics, ventilation, vasopressors, fluctuations
 '''
 
+# ----------------------------------------------------
+# SITE-OF-CARE SPECS
+# ----------------------------------------------------
+
+SOC_CAPACITY_PRESSURE = {
+    State.ASYNC: 0.01,
+    State.AMBULATORY: 0.02,
+    State.HAH: 0.03,
+    State.FACILITY: 0.05,
+    State.ICU: 0.1
+}
+
+SOC_RESOURCE_REQUIREMENTS = {
+    State.ASYNC: (0, 0, 1), # capacity bin of beds, nurses, doctors required
+    State.AMBULATORY: (0, 1, 1),
+    State.HAH: (0, 1, 1),
+    State.FACILITY: (1, 1, 1),
+    State.ICU: (1, 2, 1)
+}
+
+SOC_TREATMENT_FEASIBILITY = {
+    State.ASYNC: {
+        "ventilation": [0], # impossible
+        "vasopressors": [0], # impossible
+        "antibiotic": [0,1] # possible
+    },
+
+    State.AMBULATORY: {
+        "ventilation": [0],
+        "vasopressors": [0],
+        "antibiotic": [0,1]
+    },
+
+    State.HAH: {
+        "ventilation": [0,1], # only non-invasive but treat as allowed (to implemnent later)
+        "vasopressors": [0],
+        "antibiotic": [0,1]
+    },
+
+    State.FACILITY: {
+        "ventilation": [0,1],
+        "vasopressors": [0,1],
+        "antibiotic": [0,1]
+    },
+
+    State.ICU: {
+        "ventilation": [0,1],
+        "vasopressors": [0,1],
+        "antibiotic": [0,1]
+    }
+}
+
 class MDP(object):
 
     def __init__(self, init_state_idx=None, init_state_idx_type='obs',
@@ -111,27 +163,90 @@ class MDP(object):
         if diabetic_idx is None:
             diabetic_idx = np.random.binomial(1, self.p_diabetes)
 
+        # ----------------------------------------------------
+        # Vital bins
+        # ----------------------------------------------------
+        
         # hr and sys_bp w.p. [.25, .5, .25]
         hr_state = np.random.choice(np.arange(3), p=np.array([.25, .5, .25]))
         sysbp_state = np.random.choice(np.arange(3), p=np.array([.25, .5, .25]))
         # percoxyg w.p. [.2, .8]
         percoxyg_state = np.random.choice(np.arange(2), p=np.array([.2, .8]))
-
         if diabetic_idx == 0:
             glucose_state = np.random.choice(np.arange(5), \
                 p=np.array([.05, .15, .6, .15, .05]))
         else:
             glucose_state = np.random.choice(np.arange(5), \
                 p=np.array([.01, .05, .15, .6, .19]))
+
+        # ----------------------------------------------------
+        # Capacity bins
+        # ----------------------------------------------------
+        
+        # Doctor & nurse capacity usually avail and zero capacity rare.
+        # 0 - critical shortage, 1 - tight, 2 - moderate, 3 - largely available
+        doc_state = np.random.choice(np.arange(State.NUM_CAP_DOC), p = np.array([.05, .20, .45, .30]))
+        nurse_state = np.random.choice(np.arange(State.NUM_CAP_NURSE), p = np.array([.05, .20, .45, .30]))
+        bed_state = np.random.choice(np.arange(State.NUM_CAP_BEDS), p = np.array([.10, .30, .40, .20]))
+        
+        # ----------------------------------------------------
+        # Site of Care bins (conditioned on patient severity)
+        # ----------------------------------------------------
+        
+        severity = ((hr_state != 1) + (sysbp_state != 1) + (percoxyg_state != 1) + (glucose_state != 2))
+        
+        # Determine probability distribution of SOC depending on patient vitals
+        if severity == 0:
+            soc_probs = [0.5, 0.3, 0.15, 0.05, 0.0]
+        elif severity == 1:
+            soc_probs = [0.2, 0.4, 0.2, 0.18, 0.02]
+        elif severity == 2:
+            soc_probs = [0.05, 0.2, 0.2, 0.45, 0.10]
+        elif severity >= 3:
+            soc_probs = [0.0, 0.05, 0.10, 0.45, 0.40]
+        
+        soc_state = np.random.choice(np.arange(State.NUM_SOC), p=soc_probs)
+        
+        # -----------------------------------------------------
+            
         antibiotic_state = 0
         vaso_state = 0
         vent_state = 0
 
         state_categs = [hr_state, sysbp_state, percoxyg_state,
-                glucose_state, antibiotic_state, vaso_state, vent_state]
+                glucose_state, antibiotic_state, vaso_state, vent_state,
+                soc_state, doc_state, bed_state, nurse_state]
 
         return State(state_categs=state_categs, diabetic_idx=diabetic_idx)
 
+    def update_capacity(self):
+        soc = self.state.soc_state
+
+        # Defining the probability a patient pushes the system toward lower capacity
+        if soc == State.ASYNC:
+            p = SOC_CAPACITY_PRESSURE[soc]
+        elif soc == State.AMBULATORY:
+            p = SOC_CAPACITY_PRESSURE[soc]
+        elif soc == State.HAH:
+           p = SOC_CAPACITY_PRESSURE[soc]
+        elif soc == State.FACILITY:
+            p = SOC_CAPACITY_PRESSURE[soc]
+        elif soc == State.ICU:
+           p = SOC_CAPACITY_PRESSURE[soc]
+
+        # beds
+        if np.random.uniform() < p:
+            self.state.bed_state = max(0, self.state.bed_state - 1)
+
+        # nurses
+        if np.random.uniform() < p:
+            self.state.nurse_state = max(0, self.state.nurse_state - 1)
+
+        # doctors
+        if np.random.uniform() < p:
+            self.state.doc_state = max(0, self.state.doc_state - 1)
+        
+    
     def transition_antibiotics_on(self):
         '''
         antibiotics state on
@@ -289,6 +404,7 @@ class MDP(object):
     def transition(self, action):
         self.state = self.state.copy_state()
         start_state = self.state.copy_state()
+        self.update_capacity()
 
         if action.antibiotic == 1:
             self.transition_antibiotics_on()
@@ -323,13 +439,70 @@ class MDP(object):
 
         self.transition_fluctuate(hr_fluctuate, sysbp_fluctuate, percoxyg_fluctuate, \
             glucose_fluctuate)
+        
+        self.state.soc_state = Action.soc
 
         return self.calculateReward(start_state, action)
 
+    def soc_feasibility(self, soc):
+        beds_req, nurse_req, doc_req = SOC_RESOURCE_REQUIREMENTS[soc]
+        
+        if self.state.bed_state < beds_req:
+            return False
+        if self.state.nurse_state < nurse_req:
+            return False
+        if self.state.doc_state < doc_req:
+            return False
+
+        return True
+
+    def treatment_feasibility(self, action):
+        soc = self.state.soc_state
+        rules = SOC_TREATMENT_FEASIBILITY[soc]
+
+        if action.ventilation not in rules["ventilation"]:
+            return False
+
+        if action.vasopressors not in rules["vasopressors"]:
+            return False
+
+        if action.antibiotic not in rules["antibiotic"]:
+            return False
+
+        return True
+        
+
     def select_actions(self):
         assert self.policy_array is not None
-        probs = self.policy_array[
-                    self.state.get_state_idx(self.policy_idx_type)
-                ]
-        aev_idx = np.random.choice(np.arange(Action.NUM_ACTIONS_TOTAL), p=probs)
+        
+        state_idx = self.state.get_state_idx(self.policy_idx_type)
+        probs = self.policy_array[state_idx]
+        
+        feasible_actions = []
+        prob_feasible_actions = []
+        
+        for a in range(Action.NUM_ACTIONS_TOTAL):
+            action = Action(action_idx=a)
+            
+            # capacity feasibility
+            if not self.soc_feasibility(action.soc):
+                continue
+
+            # treatment feasibility
+            if not self.treatment_feasibility(action):
+                continue
+        
+            feasible_actions.append(a)
+            prob_feasible_actions.append(probs[a])
+            
+        if len(feasible_actions) == 0:
+                feasible_actions = [0]   # do nothing incase nothing is feasible
+                prob_feasible_actions = [1.0]
+        else: 
+            prob_feasible_actions = np.array(prob_feasible_actions) 
+            prob_feasible_actions = prob_feasible_actions / prob_feasible_actions.sum()
+        
+        
+        
+        aev_idx = np.random.choice(feasible_actions, p=prob_feasible_actions)
         return Action(action_idx = aev_idx)

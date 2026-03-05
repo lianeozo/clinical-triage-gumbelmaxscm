@@ -8,10 +8,44 @@ Initial distribution:
 '''
 
 class State(object):
+    
+    # Site-of-care categories
+    ASYNC = 0
+    AMBULATORY = 1
+    HAH = 2
+    FACILITY = 3
+    ICU = 4
+    
+    # NUMBER OF DISCRETIZED BINS PER STATE VARIABLE
+    NUM_SOC = 5
+    NUM_CAP_DOC = 4
+    NUM_CAP_BEDS = 4
+    NUM_CAP_NURSE = 4
+    NUM_HR = 3
+    NUM_SYSBP = 3
+    NUM_OXYG = 2
+    NUM_GLUC = 5
+    NUM_ANTIB = 2
+    NUM_VASO = 2
+    NUM_VENT = 2
+    
+    NUM_PER_STATE = np.array([
+        NUM_HR,
+        NUM_SYSBP,
+        NUM_OXYG,
+        NUM_GLUC,
+        NUM_ANTIB,
+        NUM_VASO,
+        NUM_VENT,
+        NUM_SOC,
+        NUM_CAP_DOC,
+        NUM_CAP_BEDS,
+        NUM_CAP_NURSE,
+    ], dtype=int)
 
-    NUM_OBS_STATES = 720
+    NUM_OBS_STATES = int(np.prod(NUM_PER_STATE))
     NUM_HID_STATES = 2  # Binary value of diabetes
-    NUM_PROJ_OBS_STATES = int(720 / 5)  # Marginalizing over glucose
+    NUM_PROJ_OBS_STATES = int(NUM_OBS_STATES / NUM_GLUC)  # Marginalizing over glucose
     NUM_FULL_STATES = int(NUM_OBS_STATES * NUM_HID_STATES)
 
     def __init__(self,
@@ -28,7 +62,7 @@ class State(object):
             self.set_state_by_idx(
                     state_idx, idx_type=idx_type, diabetic_idx=diabetic_idx)
         elif state_categs is not None:
-            assert len(state_categs) == 7, "must specify 7 state variables"
+            assert len(state_categs) == 11, "must specify 11 state variables"
             self.hr_state = state_categs[0]
             self.sysbp_state = state_categs[1]
             self.percoxyg_state = state_categs[2]
@@ -36,6 +70,10 @@ class State(object):
             self.antibiotic_state = state_categs[4]
             self.vaso_state = state_categs[5]
             self.vent_state = state_categs[6]
+            self.soc_state = state_categs[7]
+            self.doc_state = state_categs[8]
+            self.bed_state = state_categs[9]
+            self.nurse_state = state_categs[10]
             self.diabetic_idx = diabetic_idx
 
     def check_absorbing_state(self):
@@ -51,10 +89,12 @@ class State(object):
 
         The state index is determined by using "bit" arithmetic, with the
         complication that not every state is binary
+        
+        
 
         :param state_idx: Given index
-        :param idx_type: Index type, either observed (720), projected (144) or
-        full (1440)
+        :param idx_type: Index type, either observed, projected or
+        full
         :param diabetic_idx: If full state index not given, this is required
         """
         if idx_type == 'obs':
@@ -63,7 +103,7 @@ class State(object):
             term_base = State.NUM_PROJ_OBS_STATES/3
         elif idx_type == 'full':
             term_base = State.NUM_FULL_STATES/2 # Starts with diab
-
+        
         # Start with the given state index
         mod_idx = state_idx
 
@@ -103,13 +143,29 @@ class State(object):
         mod_idx %= term_base
         term_base /= 2
         self.vent_state = np.floor(mod_idx/term_base).astype(int)
+        
+        mod_idx %= term_base
+        term_base /= 5
+        self.soc_state = np.floor(mod_idx/term_base).astype(int)
 
+        mod_idx %= term_base
+        term_base /= 4
+        self.doc_state = np.floor(mod_idx/term_base).astype(int)
+
+        mod_idx %= term_base
+        term_base /= 4
+        self.bed_state = np.floor(mod_idx/term_base).astype(int)
+
+        mod_idx %= term_base
+        term_base /= 4
+        self.nurse_state = np.floor(mod_idx/term_base).astype(int)
+        
     def get_state_idx(self, idx_type='obs'):
         '''
         returns integer index of state: significance order as in categorical array
         '''
         if idx_type == 'obs':
-            categ_num = np.array([3,3,2,5,2,2,2])
+            categ_num = np.array([3,3,2,5,2,2,2,5,4,4,4])
             state_categs = [
                     self.hr_state,
                     self.sysbp_state,
@@ -117,18 +173,27 @@ class State(object):
                     self.glucose_state,
                     self.antibiotic_state,
                     self.vaso_state,
-                    self.vent_state]
+                    self.vent_state,
+                    self.soc_state,
+                    self.doc_state,
+                    self.bed_state,
+                    self.nurse_state]
         elif idx_type == 'proj_obs':
-            categ_num = np.array([3,3,2,2,2,2])
+            categ_num = np.array([3,3,2,2,2,2,5,4,4,4])
             state_categs = [
                     self.hr_state,
                     self.sysbp_state,
                     self.percoxyg_state,
                     self.antibiotic_state,
                     self.vaso_state,
-                    self.vent_state]
+                    self.vent_state,
+                    self.soc_state,
+                    self.doc_state,
+                    self.bed_state,
+                    self.nurse_state
+                    ]
         elif idx_type == 'full':
-            categ_num = np.array([2,3,3,2,5,2,2,2])
+            categ_num = np.array([2,3,3,2,5,2,2,2,5,4,4,4])
             state_categs = [
                     self.diabetic_idx,
                     self.hr_state,
@@ -137,7 +202,11 @@ class State(object):
                     self.glucose_state,
                     self.antibiotic_state,
                     self.vaso_state,
-                    self.vent_state]
+                    self.vent_state,
+                    self.soc_state,
+                    self.doc_state,
+                    self.bed_state,
+                    self.nurse_state]
 
         sum_idx = 0
         prev_base = 1
@@ -158,13 +227,18 @@ class State(object):
             self.glucose_state == other.glucose_state and \
             self.antibiotic_state == other.antibiotic_state and \
             self.vaso_state == other.vaso_state and \
-            self.vent_state == other.vent_state
+            self.vent_state == other.vent_state and \
+            self.soc_state == other.soc_state and \
+            self.doc_state == other.doc_state and \
+            self.bed_state == other.bed_state and \
+            self.nurse_state == other.nurse_state
 
     def __ne__(self, other):
         return not self.__eq__(other)
 
     def __hash__(self):
-        return self.get_state_idx()
+        return hash(tuple(self.get_state_vector()))
+        # return self.get_state_idx()
 
     def get_num_abnormal(self):
         '''
@@ -216,7 +290,11 @@ class State(object):
             self.glucose_state,
             self.antibiotic_state,
             self.vaso_state,
-            self.vent_state],
+            self.vent_state,
+            self.soc_state,
+            self.doc_state,
+            self.bed_state,
+            self.nurse_state],
             diabetic_idx=self.diabetic_idx)
 
     def get_state_vector(self):
@@ -226,4 +304,8 @@ class State(object):
             self.glucose_state,
             self.antibiotic_state,
             self.vaso_state,
-            self.vent_state]).astype(int)
+            self.vent_state,
+            self.soc_state,
+            self.doc_state,
+            self.bed_state,
+            self.nurse_state]).astype(int)
