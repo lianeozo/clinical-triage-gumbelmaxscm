@@ -105,3 +105,7 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     # In-place gradient clipping
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
+
+
+def train_dqn(memory, policy_net, target_net. optimizer):
+    pass
