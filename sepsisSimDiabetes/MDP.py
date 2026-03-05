@@ -257,16 +257,38 @@ class MDP(object):
                 elif glucose_prob < 0.6:
                     self.state.glucose_state = min(4, self.state.glucose_state + 1)
 
-    def calculateReward(self):
+    def calculateReward(self, self_state, action):
+        reward = 0
         num_abnormal = self.state.get_num_abnormal()
+        # Penalize death
         if num_abnormal >= 3:
-            return -1
+            reward -= 10_000
+        # Reward on discharge
         elif num_abnormal == 0 and not self.state.on_treatment():
-            return 1
-        return 0
+            reward += 10_000
+
+        # penalize increasing side of care level
+        if action.escalate_care == 1:
+            reward -= 200
+
+        # penalize not increasing level with increased abnormal states
+        if action.escalate_care != 0:
+            if num_abnormal > 2:
+                reward -= 100
+
+        # penalize resource usage
+        if action.antibiotic == 1:
+            reward -= 10
+        if action.ventilation == 1:
+            reward -= 100
+        if action.vasopressors == 1:
+            reward -= 100
+
+        return reward
 
     def transition(self, action):
         self.state = self.state.copy_state()
+        start_state = self.state.copy_state()
 
         if action.antibiotic == 1:
             self.transition_antibiotics_on()
@@ -302,7 +324,7 @@ class MDP(object):
         self.transition_fluctuate(hr_fluctuate, sysbp_fluctuate, percoxyg_fluctuate, \
             glucose_fluctuate)
 
-        return self.calculateReward()
+        return self.calculateReward(start_state, action)
 
     def select_actions(self):
         assert self.policy_array is not None
