@@ -4,6 +4,8 @@ from gymnasium import spaces
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.evaluation import evaluate_policy
 
 from MDP import MDP
 from State import State
@@ -83,15 +85,29 @@ class TriageEnv(gym.Env):
 
         return obs, reward, terminated, truncated, {}
 
+#make environment
+def make_single_env(max_steps=20):
+    def _init():
+        env = TriageEnv(max_steps =max_steps)
+        env = Monitor(env)
+
+        return env
+    return _init
+
 
 # ---------------------------------------------------------
 # TRAIN PPO
 # ---------------------------------------------------------
 
-def train():
+def train(
+        total_timesteps=1000000, 
+        n_envs=8, 
+        max_steps=20, 
+        model_path="ppo_triage_model",
+        log_dir="./ppo_triage_logs/", 
+):
 
-    # parallel environments (much faster)
-    env = make_vec_env(TriageEnv, n_envs=8)
+    env = make_vec_env(make_single_env(max_steps=max_steps), n_envs=n_envs)
 
     model = PPO(
         "MlpPolicy",
@@ -100,34 +116,57 @@ def train():
         learning_rate=3e-4,
         n_steps=2048,
         batch_size=256,
+        n_epochs=10, 
         gamma=0.99,
-        tensorboard_log="./ppo_triage_logs/"
+        gae_lambda=0.95, 
+        clip_range=0.2, 
+        ent_coef=0.01, 
+        vf_coef=0.5,
+        max_grad_norm=0.5,
+        tensorboard_log=log_dir, 
+        policy_kwargs= dict( net_arch=dict(pi=[128, 128], vf=[128,128])),
     )
 
-    model.learn(total_timesteps=1_000_000)
+    model.learn(total_timesteps=total_timesteps)
 
-    model.save("ppo_triage_model")
+    model.save(model_path)
 
     print("Training complete. Model saved.")
+    env.close()
+    return model
 
 
 # ---------------------------------------------------------
 # EVALUATE POLICY
 # ---------------------------------------------------------
 
-def evaluate():
+def evaluate(model_path="ppo_triage_model",
+    n_eval_episodes=20,
+    max_steps=20,
+    deterministic=True,):
+    
 
-    env = TriageEnv()
+    env = Monitor(TriageEnv(max_steps=max_steps))
 
-    model = PPO.load("ppo_triage_model")
+    model = PPO.load(model_path)
+
+    mean_reward, std_reward = evaluate_policy(
+        model, 
+        env, 
+        n_eval_episodes=n_eval_episodes, 
+        deterministic=deterministic,
+    )
+
+    print("Evaluate over ", n_eval_episodes, " episodes:")
+    print("Mean reward: ", mean_reward, "\nstd reward: ", std_reward)
 
     obs, _ = env.reset()
 
     total_reward = 0
 
-    for step in range(50):
+    for step in range(max_steps):
 
-        action, _ = model.predict(obs, deterministic=True)
+        action, _ = model.predict(obs, deterministic=deterministic)
 
         obs, reward, done, trunc, _ = env.step(action)
 
@@ -137,6 +176,7 @@ def evaluate():
             break
 
     print("Episode reward:", total_reward)
+    env.close()
 
 
 # ---------------------------------------------------------
@@ -145,6 +185,17 @@ def evaluate():
 
 if __name__ == "__main__":
 
-    train()
+    train(
+        total_timesteps=1000000,
+        n_envs=8, 
+        max_steps=20,
+        model_path="ppo_triage_model", 
+        log_dir="./ppo_triage_logs/",
+    )
 
-    evaluate()
+    evaluate(
+        model_path="ppo_triage_model",
+        n_eval_episodes=20,
+        max_steps=20,
+        deterministic=True,
+    )
