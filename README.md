@@ -1,7 +1,7 @@
 # Clinical Site-of-Care Triage with a POMDP Extension of the Gumbel-Max SCM Sepsis Simulator
 
 > **This repository extends the original Oberst & Sontag (ICML 2019) sepsis simulator into a POMDP framework for sequential site-of-care (SOC) triage decisions.**
-> All modifications and additions beyond the original Oberst & Sontag codebase are the work of Liane Ozoemelam, Kevin Chen, and Tanvi Thoria (Stanford CS234, 2024–25).
+> All modifications and additions beyond the original Oberst & Sontag codebase are the work of Liane Ozoemelam, Kevin Chen, and Tanvi Thoria (Stanford CS234, 2026).
 
 ---
 
@@ -14,7 +14,7 @@ The original simulator models a sepsis patient as a finite MDP: a clinician choo
 The original state encodes only patient vitals and treatment flags. We extend this to a **patient–system state space** that supports site-of-care decisions and resource constraints.
 
 **Original state variables (unchanged):**
-- Vitals bins: `hr_state` (0/1/2), `sysbp_state` (0/1/2), `percoxyg_state` (0/1)
+- Vitals bins: `hr_state` (0/1/2), `sysbp_state` (0/1/2), `percoxyg_state` (0/1/2)
 - Glucose bin: `glucose_state` (0–4)
 - Treatment flags: `antibiotic_state`, `vaso_state`, `vent_state`
 - Hidden type: `diabetic_idx` (0/1)
@@ -81,7 +81,7 @@ The original reward function issues ±1 terminal rewards only. We replace this w
 |---|---|
 | Death (≥3 abnormal vitals) | −10,000 |
 | Discharge (all vitals normal, no treatment) | +10,000 |
-| SOC escalation | −200 |
+| SOC escalation (SOC increased vs previous timestep) | −200 |
 | ≥2 abnormal vitals without SOC escalation | −100 |
 | Antibiotics administered | −10 |
 | Ventilator used | −100 |
