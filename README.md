@@ -29,19 +29,29 @@ Capacity variables evolve via a stochastic random walk that applies one roll per
 
 ---
 
-### 2. Redefined Action Space (`Action.py`)
+### 2. Expanded Action Space (`Action.py`)
 
-**Original:** action = treatment combination (3-bit vector over antibiotics / vent / vasopressors → 8 actions).
+**Original:** action = treatment combination (3-bit vector over antibiotics / invasive vent / vasopressors → 8 actions total).
 
-**Our modification:** the agent's primary action is the **next site of care**:
+**Our modification:** the action space is a **joint selection of site of care and all treatment decisions simultaneously**. Each action is a 5-tuple:
 
 ```
-at ∈ A := {ASYNC, AMBULATORY, H@H, FACILITY, ICU}
+(antibiotic, invasive_vent, vasopressors, noninv_vent, soc)
 ```
 
-Treatment interventions are no longer directly chosen by the agent — they are determined by feasibility constraints imposed by the current site of care. For example, vasopressors and invasive ventilation are only available at FACILITY or ICU. This makes the action space 5-dimensional (one per SOC level) while preserving the original treatment transition logic.
+where each treatment dimension is binary and `soc ∈ {ASYNC, AMBULATORY, H@H, FACILITY, ICU}`, giving:
 
----
+```
+2 × 2 × 2 × 2 × 5 = 80 total actions
+```
+
+Actions are indexed as a single integer via:
+
+```python
+action_idx = antibiotic*40 + ventilation*20 + vasopressors*10 + noninv_ventilation*5 + soc
+```
+
+Not all 80 actions are valid in every state. At each step, `select_actions()` filters to the feasible subset by applying two checks: (i) **SOC feasibility** — whether current resource capacity supports the requested SOC; (ii) **treatment feasibility** — whether the requested treatment combination is permitted at the current SOC (e.g., vasopressors and invasive ventilation are unavailable at ASYNC or AMBULATORY). The agent's output over all 80 logits is then masked to this feasible subset before sampling.
 
 ### 3. POMDP Observation Function (`MDP.py`)
 
